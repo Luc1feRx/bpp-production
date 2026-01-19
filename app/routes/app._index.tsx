@@ -86,11 +86,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function Index() {
   const fetcher = useFetcher<typeof action>();
+  const productsSyncFetcher = useFetcher();
+  const ordersSyncFetcher = useFetcher();
 
   const shopify = useAppBridge();
   const isLoading =
     ["loading", "submitting"].includes(fetcher.state) &&
     fetcher.formMethod === "POST";
+  const isProductsSyncLoading =
+    ["loading", "submitting"].includes(productsSyncFetcher.state) &&
+    productsSyncFetcher.formMethod === "POST";
 
   useEffect(() => {
     if (fetcher.data?.product?.id) {
@@ -98,7 +103,33 @@ export default function Index() {
     }
   }, [fetcher.data?.product?.id, shopify]);
 
+  useEffect(() => {
+    const d: any = productsSyncFetcher.data;
+    if (!d) return;
+
+    if (d.ok) {
+      shopify.toast.show(`Products synced: ${d.count ?? 0}`);
+    } else {
+      shopify.toast.show(`Product sync failed: ${d.error ?? "unknown"}`);
+    }
+  }, [productsSyncFetcher.data, shopify]);
+
+  useEffect(() => {
+    const d: any = ordersSyncFetcher.data;
+    if (!d) return;
+
+    if (d.ok) {
+      shopify.toast.show(`Orders synced: ${d.count ?? 0}`);
+    } else {
+      shopify.toast.show(`Order sync failed: ${d.error ?? "unknown"}`);
+    }
+  }, [ordersSyncFetcher.data, shopify]);
+
   const generateProduct = () => fetcher.submit({}, { method: "POST" });
+  const syncProducts = () =>
+    productsSyncFetcher.submit({}, { method: "POST", action: "/app/products/sync" });
+  const syncOrders = () =>
+    ordersSyncFetcher.submit({}, { method: "POST", action: "/app/orders/sync" });
 
   return (
     <s-page heading="Shopify app template">
@@ -127,6 +158,63 @@ export default function Index() {
           mutation demo, to provide a starting point for app development.
         </s-paragraph>
       </s-section>
+      <s-section heading="Products">
+        <s-paragraph>
+          Sync latest products from Shopify into your MongoDB via Prisma.
+        </s-paragraph>
+        <s-stack direction="inline" gap="base">
+          <s-button
+            onClick={syncProducts}
+            {...(isProductsSyncLoading ? { loading: true } : {})}
+          >
+            Sync products
+          </s-button>
+        </s-stack>
+        {productsSyncFetcher.data && (
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
+            <pre style={{ margin: 0 }}>
+              <code>{JSON.stringify(productsSyncFetcher.data, null, 2)}</code>
+            </pre>
+          </s-box>
+        )}
+      </s-section>
+
+      <s-section heading="Orders">
+        <s-paragraph>
+          Sync latest orders from Shopify into your MongoDB via Prisma.
+        </s-paragraph>
+        <s-stack direction="inline" gap="base">
+          <s-button
+            onClick={syncOrders}
+            {...(
+              ["loading", "submitting"].includes(ordersSyncFetcher.state) &&
+              ordersSyncFetcher.formMethod === "POST"
+                ? { loading: true }
+                : {}
+            )}
+          >
+            Sync orders
+          </s-button>
+        </s-stack>
+        {ordersSyncFetcher.data && (
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
+            <pre style={{ margin: 0 }}>
+              <code>{JSON.stringify(ordersSyncFetcher.data, null, 2)}</code>
+            </pre>
+          </s-box>
+        )}
+      </s-section>
+
       <s-section heading="Get started with products">
         <s-paragraph>
           Generate a product with GraphQL and get the JSON output for that

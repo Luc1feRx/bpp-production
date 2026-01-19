@@ -33,3 +33,42 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model Order {
+  order_id     String   @id @default(auto()) @map("_id") @db.ObjectId
+  shop         String
+  adminGid     String   @unique
+  name         String?
+  orderNumber  Int?
+  createdAt    DateTime
+  processedAt  DateTime?
+  currencyCode String?
+  totalPrice   Float?
+  financialStatus String?
+  fulfillmentStatus String?
+  raw          Json?
+
+  @@index([shop])
+  @@index([createdAt])
+}
+
+model Product {
+  product_id String @id @default(auto()) @map("_id") @db.ObjectId
+  shop       String
+  adminGid   String @unique
+  title      String?
+  handle     String?
+  status     String?
+  createdAt  DateTime?
+  updatedAt  DateTime?
+  raw        Json?
+
+  @@index([shop])
+}
+
+model Shop {
+  id                        String    @id @default(auto()) @map("_id") @db.ObjectId
+  shop                      String    @unique
+  initialOrderSyncStarted   DateTime?
+  initialOrderSyncCompleted DateTime?
+}
