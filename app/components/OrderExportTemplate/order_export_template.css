@@ -1,0 +1,7 @@
+s-table-header:first-child,
+s-table-cell:first-child {
+  position: sticky;
+  left: 0;
+  background: white;
+  z-index: 2;
+}
