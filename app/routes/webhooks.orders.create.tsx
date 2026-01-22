@@ -12,6 +12,7 @@ type OrdersCreateWebhookPayload = {
   total_price?: string;
   financial_status?: string | null;
   fulfillment_status?: string | null;
+  [key: string]: unknown;
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {

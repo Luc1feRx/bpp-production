@@ -1,5 +1,5 @@
 import { useChangeData } from "app/hook/useChangeData";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -16,36 +16,180 @@ import { CSS } from "@dnd-kit/utilities";
 
 /* ================= TYPES ================= */
 
-type Order = {
-  name: string;
-  email: string;
-  old: string;
-  phone: string;
-  address?: string;
-  city?: string;
-  country?: string;
-  zip?: string;
+export type Order = {
+  id: string;
+  adminGid: string;
+  name: string | null;
+  createdAt: string;
+  processedAt: string | null;
+  financialStatus: string | null;
+  fulfillmentStatus: string | null;
+  totalPrice: number | null;
+  currencyCode: string | null;
+  raw?: any;
 };
-
-type ColumnKey = keyof Order;
 
 type Column = {
-  key: ColumnKey;
+  id: string;
   label: string;
+  path: string;
 };
 
-/* ================= ALL FIELDS ================= */
+type FieldOption = {
+  label: string;
+  path: string;
+};
 
-const ALL_FIELDS: Column[] = [
-  { key: "name", label: "Order Name" },
-  { key: "phone", label: "Phone" },
-  { key: "old", label: "Age" },
-  { key: "email", label: "Email" },
-  { key: "address", label: "Address" },
-  { key: "city", label: "City" },
-  { key: "country", label: "Country" },
-  { key: "zip", label: "Zip Code" },
+/* ================= DEFAULT FIELDS ================= */
+
+const DEFAULT_FIELDS: Column[] = [
+  { id: "name", label: "Order Name", path: "raw.name" },
+  { id: "createdAt", label: "Order Created Date", path: "raw.created_at" },
+  { id: "financialStatus", label: "Financial Status", path: "raw.financial_status" },
+  { id: "totalPrice", label: "Subtotal Price Set", path: "raw.subtotal_price_set.shop_money.amount" },
 ];
+
+function getByPath(input: unknown, path: string): unknown {
+  if (!path) return undefined;
+
+  const parts = path
+    .split(".")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  let cur: any = input;
+
+  for (const part of parts) {
+    if (cur == null) return undefined;
+
+    const m = /^(.+?)\[(\d+)\]$/.exec(part);
+    if (m) {
+      const key = m[1];
+      const idx = Number(m[2]);
+      cur = cur?.[key];
+      if (!Array.isArray(cur)) return undefined;
+      cur = cur[idx];
+      continue;
+    }
+
+    cur = cur?.[part];
+  }
+
+  return cur;
+}
+
+function formatCellValue(value: unknown): string {
+  if (value == null) return "-";
+  if (typeof value === "string") return value || "-";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "-";
+  if (typeof value === "boolean") return value ? "true" : "false";
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function normalizePathForRead(path: string) {
+  return path.replaceAll("[]", "[0]");
+}
+
+function buildSyncXFieldCatalogue(): FieldOption[] {
+  return [
+    // ===== ORDER BASIC =====
+    { label: "Order Number", path: "raw.order_number" },
+    { label: "Order Name", path: "raw.name" },
+    { label: "Order Created Date", path: "raw.created_at" },
+    { label: "Order Processed Date", path: "raw.processed_at" },
+    { label: "Order Close DateTime", path: "raw.closed_at" },
+    { label: "Order Cancelled at", path: "raw.cancelled_at" },
+    { label: "Financial Status", path: "raw.financial_status" },
+    { label: "Fulfillment Status", path: "raw.fulfillment_status" },
+    { label: "Currency", path: "raw.currency" },
+
+    // ===== CUSTOMER / CONTACT =====
+    { label: "Email (Order)", path: "raw.email" },
+    { label: "Phone (Order)", path: "raw.phone" },
+    { label: "Customer Email", path: "raw.customer.email" },
+    { label: "Customer First Name", path: "raw.customer.first_name" },
+    { label: "Customer Last Name", path: "raw.customer.last_name" },
+    { label: "Customer Phone", path: "raw.customer.phone" },
+
+    // ===== CHANNEL / SOURCE =====
+    { label: "Sales Channel Name", path: "raw.source_name" },
+    { label: "Source Identifier", path: "raw.source_identifier" },
+    { label: "Checkout Token (GQL deprecated)", path: "raw.checkout_token" },
+
+    // ===== ADDRESS =====
+    { label: "Shipping Name", path: "raw.shipping_address.name" },
+    { label: "Shipping Address 1", path: "raw.shipping_address.address1" },
+    { label: "Shipping Address 2", path: "raw.shipping_address.address2" },
+    { label: "Shipping City", path: "raw.shipping_address.city" },
+    { label: "Shipping Province", path: "raw.shipping_address.province" },
+    { label: "Shipping Country", path: "raw.shipping_address.country" },
+    { label: "Shipping Zip", path: "raw.shipping_address.zip" },
+    { label: "Shipping Phone", path: "raw.shipping_address.phone" },
+
+    { label: "Billing Name", path: "raw.billing_address.name" },
+    { label: "Billing Address 1", path: "raw.billing_address.address1" },
+    { label: "Billing Address 2", path: "raw.billing_address.address2" },
+    { label: "Billing City", path: "raw.billing_address.city" },
+    { label: "Billing Province", path: "raw.billing_address.province" },
+    { label: "Billing Country", path: "raw.billing_address.country" },
+    { label: "Billing Zip", path: "raw.billing_address.zip" },
+    { label: "Billing Phone", path: "raw.billing_address.phone" },
+
+    // ===== PRICES =====
+    { label: "Subtotal Price Set", path: "raw.subtotal_price_set.shop_money.amount" },
+    { label: "Total Price Presentment Amount", path: "raw.total_price_set.presentment_money.amount" },
+    { label: "Total Tax Presentment Amount", path: "raw.total_tax_set.presentment_money.amount" },
+
+    // ===== NOTE / ATTRIBUTES =====
+    { label: "Note", path: "raw.note" },
+    { label: "Note Attribute 1 Name", path: "raw.note_attributes[0].name" },
+    { label: "Note Attribute 1 Value", path: "raw.note_attributes[0].value" },
+    { label: "Note Attribute 2 Name", path: "raw.note_attributes[1].name" },
+    { label: "Note Attribute 2 Value", path: "raw.note_attributes[1].value" },
+    { label: "Note Attribute 3 Name", path: "raw.note_attributes[2].name" },
+    { label: "Note Attribute 3 Value", path: "raw.note_attributes[2].value" },
+
+    // ===== LINE ITEMS (sample item 1) =====
+    { label: "Order Line item Properties 1 Name", path: "raw.line_items[0].properties[0].name" },
+    { label: "Order Line item Properties 1 Value", path: "raw.line_items[0].properties[0].value" },
+    { label: "Order Line item Properties 2 Name", path: "raw.line_items[0].properties[1].name" },
+    { label: "Order Line item Properties 2 Value", path: "raw.line_items[0].properties[1].value" },
+    { label: "Order Line item Properties 3 Name", path: "raw.line_items[0].properties[2].name" },
+    { label: "Order Line item Properties 3 Value", path: "raw.line_items[0].properties[2].value" },
+
+    // ===== STATIC FIELD =====
+    { label: "Exported Timestamp", path: "__static.exportedTimestamp" },
+
+    // ===== DEPRECATED (GQL) =====
+    { label: "Token (GQL deprecated)", path: "raw.token" },
+    { label: "Cart Token (GQL deprecated)", path: "raw.cart_token" },
+    { label: "Referring Site (GQL deprecated)", path: "raw.referring_site" },
+    { label: "Landing Site (GQL deprecated)", path: "raw.landing_site" },
+
+    // ===== MISC (từ screenshot) =====
+    { label: "Test", path: "raw.test" },
+    { label: "User ID (GQL deprecated)", path: "raw.user_id" },
+  ];
+}
+
+function getStaticValue(path: string) {
+  if (path === "__static.exportedTimestamp") return new Date().toISOString();
+  return undefined;
+}
+
+function includesSearch(haystack: string, needle: string) {
+  if (!needle) return true;
+  return haystack.toLowerCase().includes(needle.toLowerCase());
+}
+
+function dedupe<T>(arr: T[]) {
+  return Array.from(new Set(arr));
+}
 
 /* ================= SORTABLE HEADER ================= */
 
@@ -89,54 +233,48 @@ function SortableHeader({ id, label }: { id: string; label: string }) {
 
 /* ================= MAIN COMPONENT ================= */
 
-export default function OrderExportTemplate() {
+export default function OrderExportTemplate({
+  orders,
+}: {
+  orders: Order[];
+}) {
   const storeName = useChangeData<string>();
-  const selectedField = useChangeData<string>();
+
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     console.log("Store name:", storeName);
   }, [storeName]);
 
-  const orderList: Order[] = [
-    {
-      name: "John Smith",
-      email: "john@example.com",
-      old: "40",
-      phone: "123-456-7890",
-      address: "123 Main St",
-      city: "New York",
-      country: "US",
-      zip: "10001",
-    },
-    {
-      name: "Jane Johnson",
-      email: "jane@example.com",
-      old: "23",
-      phone: "122-456-7890",
-      address: "45 Lake View",
-      city: "Toronto",
-      country: "CA",
-      zip: "M4B1B3",
-    },
-  ];
+  const orderList: Order[] = orders;
 
-  const [columns, setColumns] = useState<Column[]>([
-    { key: "name", label: "Order Name" },
-    { key: "phone", label: "Phone" },
-    { key: "old", label: "Age" },
-    { key: "email", label: "Email" },
-  ]);
-
+  const [columns, setColumns] = useState<Column[]>(DEFAULT_FIELDS);
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
 
-  /* ===== AVAILABLE FIELDS ===== */
-  const availableFields = useMemo(
-    () => ALL_FIELDS.filter((f) => !columns.some((c) => c.key === f.key)),
-    [columns]
-  );
+  const fieldCatalogue = useMemo(() => {
+    return buildSyncXFieldCatalogue();
+  }, []);
 
-  /* ===== DRAG HANDLERS ===== */
+  const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
+
+  const availableFields = useMemo(() => {
+    const existing = new Set(columns.map((c) => c.path));
+
+    return fieldCatalogue
+      .filter((f) => !existing.has(f.path))
+      .filter((f) => !selectedSet.has(f.path))
+      .filter((f) => includesSearch(f.label, query));
+  }, [columns, fieldCatalogue, query, selectedSet]);
+
+  const selectedOptions = useMemo(() => {
+    const map = new Map(fieldCatalogue.map((f) => [f.path, f]));
+    return selectedPaths.map((p) => map.get(p)).filter(Boolean) as FieldOption[];
+  }, [fieldCatalogue, selectedPaths]);
+
   const handleDragEnd = (event: any) => {
     const { active, over } = event;
     setActiveId(null);
@@ -144,49 +282,191 @@ export default function OrderExportTemplate() {
     if (!over || active.id === over.id) return;
 
     setColumns((prev) => {
-      const oldIndex = prev.findIndex((c) => c.key === active.id);
-      const newIndex = prev.findIndex((c) => c.key === over.id);
+      const oldIndex = prev.findIndex((c) => c.id === active.id);
+      const newIndex = prev.findIndex((c) => c.id === over.id);
       return arrayMove(prev, oldIndex, newIndex);
     });
   };
 
-  const activeColumn = columns.find((c) => c.key === activeId);
+  const activeColumn = columns.find((c) => c.id === activeId);
+
+  const addPath = (path: string) => {
+    setSelectedPaths((prev) => dedupe([...prev, path]));
+    setQuery("");
+  };
+
+  const removePath = (path: string) => {
+    setSelectedPaths((prev) => prev.filter((p) => p !== path));
+  };
+
+  const clearPicker = () => {
+    setSelectedPaths([]);
+    setQuery("");
+    setIsOpen(false);
+  };
+
+  const saveToColumns = () => {
+    if (!selectedPaths.length) return;
+
+    setColumns((prev) => {
+      const existing = new Set(prev.map((c) => c.path));
+      const next: Column[] = [...prev];
+
+      for (const path of selectedPaths) {
+        const trimmed = (path ?? "").trim();
+        if (!trimmed) continue;
+        if (existing.has(trimmed)) continue;
+
+        const label = fieldCatalogue.find((f) => f.path === trimmed)?.label ?? trimmed;
+        const nextId = `${trimmed}-${next.length + 1}`;
+
+        next.push({ id: nextId, label, path: trimmed });
+        existing.add(trimmed);
+      }
+
+      return next;
+    });
+
+    clearPicker();
+  };
 
   return (
-    <>
-      <s-modal id="add-field-modal" heading="Add field">
-        <s-select
-          label="Field"
-          value={selectedField.value}
-          onChange={selectedField.handleChange}
-        >
-          <s-option value="">Select field</s-option>
+    <div style={{height: '1000px'}}>
+      <s-modal id="add-field-modal" heading="Add export fields">
+        <s-stack gap="base">
+          <s-box>
+            <div
+              style={{
+                border: "1px solid #c9cccf",
+                borderRadius: 10,
+                padding: 10,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+                position: "relative",
+              }}
+              onClick={() => {
+                setIsOpen(true);
+                inputRef.current?.focus();
+              }}
+            >
+              {selectedOptions.map((opt) => (
+                <div
+                  key={opt.path}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "4px 10px",
+                    borderRadius: 999,
+                    background: "#f1f2f3",
+                    border: "1px solid #d5d7da",
+                    fontSize: 14,
+                  }}
+                >
+                  <span>{opt.label}</span>
+                  <button
+                    type="button"
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      fontSize: 16,
+                      lineHeight: 1,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removePath(opt.path);
+                    }}
+                    aria-label={`Remove ${opt.label}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
 
-          {availableFields.map((field) => (
-            <s-option key={field.key} value={field.key}>
-              {field.label}
-            </s-option>
-          ))}
-        </s-select>
+              <input
+                ref={inputRef as any}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setIsOpen(true);
+                }}
+                onFocus={() => setIsOpen(true)}
+                placeholder={selectedOptions.length ? "" : "Please select input field to added"}
+                style={{
+                  flex: 1,
+                  minWidth: 180,
+                  border: "none",
+                  outline: "none",
+                  fontSize: 14,
+                  padding: 6,
+                }}
+              />
 
-        <s-button slot="secondary-actions" commandFor="add-field-modal" command="--hide">
+              <div style={{ marginLeft: "auto", padding: 6, color: "#6d7175" }}>▾</div>
+
+              {isOpen ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    zIndex: 10,
+                    marginTop: 6,
+                    background: "#fff",
+                    border: "1px solid #c9cccf",
+                    borderRadius: 10,
+                    maxHeight: 260,
+                    overflow: "auto",
+                  }}
+                >
+                  {availableFields.length ? (
+                    availableFields.map((f) => (
+                      <div
+                        key={f.path}
+                        style={{
+                          padding: "10px 12px",
+                          cursor: "pointer",
+                          borderBottom: "1px solid #eef0f2",
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          addPath(f.path);
+                        }}
+                      >
+                        {f.label}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ padding: "10px 12px", color: "#6d7175" }}>
+                      No results
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </s-box>
+        </s-stack>
+
+        <s-button slot="secondary-actions" commandFor="add-field-modal" command="--hide" onClick={() => clearPicker()}>
           Cancel
         </s-button>
 
         <s-button
           slot="primary-action"
           variant="primary"
-          disabled={!selectedField.value}
+          disabled={!selectedPaths.length}
           commandFor="add-field-modal"
           command="--hide"
-          onClick={() => {
-            const field = ALL_FIELDS.find((f) => f.key === selectedField.value);
-            if (field) setColumns((prev) => [...prev, field]);
-          }}
+          onClick={() => saveToColumns()}
         >
-          Add
+          Save
         </s-button>
       </s-modal>
+
       <s-stack gap="base">
         <s-box>
           <s-section>
@@ -212,6 +492,7 @@ export default function OrderExportTemplate() {
                   </s-button>
                 </s-stack>
               </s-box>
+
               <DndContext
                 collisionDetection={closestCenter}
                 onDragStart={(e) => setActiveId(e.active.id)}
@@ -237,22 +518,19 @@ export default function OrderExportTemplate() {
                       </th>
 
                       <SortableContext
-                        items={columns.map((c) => c.key)}
+                        items={columns.map((c) => c.id)}
                         strategy={horizontalListSortingStrategy}
                       >
                         {columns.map((col) => (
                           <th
-                            key={col.key}
+                            key={col.id}
                             style={{
                               background: "#f6f6f7",
                               padding: 8,
                               borderBottom: "1px solid #e1e3e5",
                             }}
                           >
-                            <SortableHeader
-                              id={col.key}
-                              label={col.label}
-                            />
+                            <SortableHeader id={col.id} label={col.label} />
                           </th>
                         ))}
                       </SortableContext>
@@ -261,7 +539,7 @@ export default function OrderExportTemplate() {
 
                   <tbody>
                     {orderList.map((order, i) => (
-                      <tr key={i}>
+                      <tr key={order.id ?? i}>
                         <td
                           style={{
                             padding: 8,
@@ -271,23 +549,33 @@ export default function OrderExportTemplate() {
                           Row {i + 1}
                         </td>
 
-                        {columns.map((col) => (
-                          <td
-                            key={col.key}
-                            style={{
-                              padding: 8,
-                              borderBottom: "1px solid #f0f0f0",
-                            }}
-                          >
-                            {order[col.key] ?? "-"}
-                          </td>
-                        ))}
+                        {columns.map((col) => {
+                          const staticValue = getStaticValue(col.path);
+                          const value =
+                            staticValue !== undefined
+                              ? staticValue
+                              : getByPath(
+                                  order?.raw as any,
+                                  normalizePathForRead(col.path).replace(/^raw\./, ""),
+                                );
+
+                          return (
+                            <td
+                              key={col.id}
+                              style={{
+                                padding: 8,
+                                borderBottom: "1px solid #f0f0f0",
+                              }}
+                            >
+                              {formatCellValue(value)}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
                 </table>
 
-                {/* ===== DRAG OVERLAY ===== */}
                 <DragOverlay>
                   {activeColumn ? (
                     <div
@@ -308,6 +596,6 @@ export default function OrderExportTemplate() {
           </s-section>
         </s-box>
       </s-stack>
-    </>
+    </div>
   );
 }
