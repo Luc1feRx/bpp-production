@@ -8,36 +8,15 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
-  useSortable,
-  horizontalListSortingStrategy,
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import "./order_export_template.css"
 import { ColumnFieldOrder, OrderField } from "app/config";
-// import SortableFieldRow from "./SortableFieldRow"
+import SortableFieldRow from "./SortableFieldRow";
+import { ModalField } from "./ModalField";
 
 /* ================= TYPES ================= */
-
-// export type Order = {
-//   id: string;
-//   adminGid: string;
-//   name: string | null;
-//   createdAt: string;
-//   processedAt: string | null;
-//   financialStatus: string | null;
-//   fulfillmentStatus: string | null;
-//   totalPrice: number | null;
-//   currencyCode: string | null;
-//   raw?: any;
-// };
-
-// type Column = {
-//   id: string;
-//   label: string;
-//   path: string;
-// };
 
 type FieldOption = {
   label: string;
@@ -81,24 +60,6 @@ function getByPath(input: unknown, path: string): unknown {
 
   return cur;
 }
-
-function formatCellValue(value: unknown): string {
-  if (value == null) return "-";
-  if (typeof value === "string") return value || "-";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "-";
-  if (typeof value === "boolean") return value ? "true" : "false";
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function normalizePathForRead(path: string) {
-  return path.replaceAll("[]", "[0]");
-}
-
 function buildSyncXFieldCatalogue(): FieldOption[] {
   return [
     // ===== ORDER BASIC =====
@@ -181,58 +142,10 @@ function buildSyncXFieldCatalogue(): FieldOption[] {
   ];
 }
 
-function getStaticValue(path: string) {
-  if (path === "__static.exportedTimestamp") return new Date().toISOString();
-  return undefined;
-}
 
 function includesSearch(haystack: string, needle: string) {
   if (!needle) return true;
   return haystack.toLowerCase().includes(needle.toLowerCase());
-}
-
-function dedupe<T>(arr: T[]) {
-  return Array.from(new Set(arr));
-}
-
-/* ================= SORTABLE HEADER ================= */
-
-function SortableHeader({ id, label }: { id: string; label: string }) {
-  const {
-    setNodeRef,
-    attributes,
-    listeners,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    opacity: isDragging ? 0.4 : 1,
-  };
-
-  return (
-    <div ref={setNodeRef} style={style}>
-      <span
-        {...attributes}
-        {...listeners}
-        style={{
-          cursor: "grab",
-          userSelect: "none",
-          fontSize: 16,
-        }}
-        title="Drag column"
-      >
-        ≡
-      </span>
-      {label}
-    </div>
-  );
 }
 
 /* ================= MAIN COMPONENT ================= */
@@ -247,6 +160,7 @@ export default function OrderExportTemplate({
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [draftSelectedPaths, setDraftSelectedPaths] = useState<string[]>([]);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -263,21 +177,12 @@ export default function OrderExportTemplate({
     return buildSyncXFieldCatalogue();
   }, []);
 
-  const selectedSet = useMemo(() => new Set(selectedPaths), [selectedPaths]);
-
   const availableFields = useMemo(() => {
-    const existing = new Set(columns.map((c) => c.path));
+    return fieldCatalogue.filter(f =>
+      includesSearch(f.label, query)
+    );
+  }, [fieldCatalogue, query]);
 
-    return fieldCatalogue
-      .filter((f) => !existing.has(f.path))
-      .filter((f) => !selectedSet.has(f.path))
-      .filter((f) => includesSearch(f.label, query));
-  }, [columns, fieldCatalogue, query, selectedSet]);
-
-  const selectedOptions = useMemo(() => {
-    const map = new Map(fieldCatalogue.map((f) => [f.path, f]));
-    return selectedPaths.map((p) => map.get(p)).filter(Boolean) as FieldOption[];
-  }, [fieldCatalogue, selectedPaths]);
 
   const handleDragEnd = (event: any) => {
     const { active, over } = event;
@@ -294,258 +199,51 @@ export default function OrderExportTemplate({
 
   const activeColumn = columns.find((c) => c.id === activeId);
 
-  const addPath = (path: string) => {
-    setSelectedPaths((prev) => dedupe([...prev, path]));
-    setQuery("");
+  const openAddFieldModal = () => {
+    setDraftSelectedPaths(columns.map(c => c.path));
   };
 
-  const removePath = (path: string) => {
-    setSelectedPaths((prev) => prev.filter((p) => p !== path));
-  };
 
-  const clearPicker = () => {
-    setSelectedPaths([]);
-    setQuery("");
-    setIsOpen(false);
-  };
+  const handleSaveFields = () => {
+    setColumns(prev => {
+      const prevMap = new Map(prev.map(c => [c.path, c]));
 
-  const saveToColumns = () => {
-    if (!selectedPaths.length) return;
+      return draftSelectedPaths
+        .map(path => {
+          const existing = prevMap.get(path);
+          if (existing) return existing;
 
-    setColumns((prev) => {
-      const existing = new Set(prev.map((c) => c.path));
-      const next: ColumnFieldOrder[] = [...prev];
+          const field = fieldCatalogue.find(f => f.path === path);
+          if (!field) return null;
 
-      for (const path of selectedPaths) {
-        const trimmed = (path ?? "").trim();
-        if (!trimmed) continue;
-        if (existing.has(trimmed)) continue;
-
-        const label = fieldCatalogue.find((f) => f.path === trimmed)?.label ?? trimmed;
-        const nextId = `${trimmed}-${next.length + 1}`;
-
-        next.push({ id: nextId, label, path: trimmed });
-        existing.add(trimmed);
-      }
-
-      return next;
+          return {
+            id: crypto.randomUUID(),
+            label: field.label,
+            path: field.path,
+          };
+        })
+        .filter(Boolean) as ColumnFieldOrder[];
     });
 
-    clearPicker();
+    setQuery("");
   };
 
-  function SortableFieldRow({
-    column,
-    orders,
-  }: {
-    column: ColumnFieldOrder;
-    orders: OrderField[];
-  }) {
-    const {
-      setNodeRef,
-      attributes,
-      listeners,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({ id: column.id });
-
-    const style = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-    };
-
-    console.log("orders", orders)
-
-    return (
-      <tr
-        ref={setNodeRef}
-        style={style}
-        className={`sortable-row ${isDragging ? "is-dragging" : ""}`}
-      >
-        <td className="td-field" title={column.label}>
-          <span
-            {...attributes}
-            {...listeners}
-            className="drag-handle"
-            title="Drag field"
-          >
-            ≡
-          </span>
-          {column.label}
-        </td>
-
-        {orders.map((order, i) => {
-          const staticValue = getStaticValue(column.path);
-          const value =
-            staticValue !== undefined
-              ? staticValue
-              : getByPath(
-                  order?.raw as any,
-                  normalizePathForRead(column.path).replace(/^raw\./, ""),
-                );
-
-          return (
-            <td
-              key={i}
-              className="td-value"
-              title={formatCellValue(value)}
-            >
-              {formatCellValue(value)}
-            </td>
-          );
-        })}
-
-        <td className="td-action">
-          <button
-            className="action-btn"
-            onClick={() => console.log("Edit field:", column)}
-            title="Edit field"
-          >
-            ✏️
-          </button>
-        </td>
-      </tr>
-    );
-  }
-
+  const handleCancelFields = () => {
+    setDraftSelectedPaths(columns.map(c => c.path));
+    setQuery("");
+  };
 
   return (
     <div style={{height: '1000px'}}>
-      <s-modal id="add-field-modal" heading="Add export fields">
-        <s-stack gap="base">
-          <s-box>
-            <div
-              style={{
-                border: "1px solid #c9cccf",
-                borderRadius: 10,
-                padding: 10,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 8,
-                alignItems: "center",
-                position: "relative",
-              }}
-              onClick={() => {
-                setIsOpen(true);
-                inputRef.current?.focus();
-              }}
-            >
-              {selectedOptions.map((opt) => (
-                <div
-                  key={opt.path}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    background: "#f1f2f3",
-                    border: "1px solid #d5d7da",
-                    fontSize: 14,
-                  }}
-                >
-                  <span>{opt.label}</span>
-                  <button
-                    type="button"
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      cursor: "pointer",
-                      fontSize: 16,
-                      lineHeight: 1,
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removePath(opt.path);
-                    }}
-                    aria-label={`Remove ${opt.label}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-
-              <input
-                ref={inputRef as any}
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setIsOpen(true);
-                }}
-                onFocus={() => setIsOpen(true)}
-                placeholder={selectedOptions.length ? "" : "Please select input field to added"}
-                style={{
-                  flex: 1,
-                  minWidth: 180,
-                  border: "none",
-                  outline: "none",
-                  fontSize: 14,
-                  padding: 6,
-                }}
-              />
-
-              <div style={{ marginLeft: "auto", padding: 6, color: "#6d7175" }}>▾</div>
-
-              {isOpen ? (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    left: 0,
-                    right: 0,
-                    zIndex: 10,
-                    marginTop: 6,
-                    background: "#fff",
-                    border: "1px solid #c9cccf",
-                    borderRadius: 10,
-                    maxHeight: 260,
-                    overflow: "auto",
-                  }}
-                >
-                  {availableFields.length ? (
-                    availableFields.map((f) => (
-                      <div
-                        key={f.path}
-                        style={{
-                          padding: "10px 12px",
-                          cursor: "pointer",
-                          borderBottom: "1px solid #eef0f2",
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          addPath(f.path);
-                        }}
-                      >
-                        {f.label}
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ padding: "10px 12px", color: "#6d7175" }}>
-                      No results
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </s-box>
-        </s-stack>
-
-        <s-button slot="secondary-actions" commandFor="add-field-modal" command="--hide" onClick={() => clearPicker()}>
-          Cancel
-        </s-button>
-
-        <s-button
-          slot="primary-action"
-          variant="primary"
-          disabled={!selectedPaths.length}
-          commandFor="add-field-modal"
-          command="--hide"
-          onClick={() => saveToColumns()}
-        >
-          Save
-        </s-button>
-      </s-modal>
+      <ModalField
+        query={query}
+        selectedPaths={draftSelectedPaths}
+        availableFields={availableFields}
+        onSearchChange={setQuery}
+        onChangeSelected={setDraftSelectedPaths}
+        onSave={handleSaveFields}
+        onCancel={handleCancelFields}
+      />
 
       <s-stack gap="base">
         <s-box>
@@ -563,7 +261,7 @@ export default function OrderExportTemplate({
             <s-stack gap="base">
               <s-box>
                 <s-stack direction="inline" justifyContent="space-between" alignItems="center">
-                  <s-button commandFor="add-field-modal" command="--show">
+                  <s-button commandFor="add-field-modal" onClick={openAddFieldModal}>
                     Add field
                   </s-button>
 
