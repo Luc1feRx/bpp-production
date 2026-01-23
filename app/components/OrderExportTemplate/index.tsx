@@ -11,29 +11,33 @@ import {
   useSortable,
   horizontalListSortingStrategy,
   arrayMove,
+  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import "./order_export_template.css"
+import { ColumnFieldOrder, OrderField } from "app/config";
+// import SortableFieldRow from "./SortableFieldRow"
 
 /* ================= TYPES ================= */
 
-export type Order = {
-  id: string;
-  adminGid: string;
-  name: string | null;
-  createdAt: string;
-  processedAt: string | null;
-  financialStatus: string | null;
-  fulfillmentStatus: string | null;
-  totalPrice: number | null;
-  currencyCode: string | null;
-  raw?: any;
-};
+// export type Order = {
+//   id: string;
+//   adminGid: string;
+//   name: string | null;
+//   createdAt: string;
+//   processedAt: string | null;
+//   financialStatus: string | null;
+//   fulfillmentStatus: string | null;
+//   totalPrice: number | null;
+//   currencyCode: string | null;
+//   raw?: any;
+// };
 
-type Column = {
-  id: string;
-  label: string;
-  path: string;
-};
+// type Column = {
+//   id: string;
+//   label: string;
+//   path: string;
+// };
 
 type FieldOption = {
   label: string;
@@ -42,7 +46,7 @@ type FieldOption = {
 
 /* ================= DEFAULT FIELDS ================= */
 
-const DEFAULT_FIELDS: Column[] = [
+const DEFAULT_FIELDS: ColumnFieldOrder[] = [
   { id: "name", label: "Order Name", path: "raw.name" },
   { id: "createdAt", label: "Order Created Date", path: "raw.created_at" },
   { id: "financialStatus", label: "Financial Status", path: "raw.financial_status" },
@@ -236,7 +240,7 @@ function SortableHeader({ id, label }: { id: string; label: string }) {
 export default function OrderExportTemplate({
   orders,
 }: {
-  orders: Order[];
+  orders: OrderField[];
 }) {
   const storeName = useChangeData<string>();
 
@@ -250,9 +254,9 @@ export default function OrderExportTemplate({
     console.log("Store name:", storeName);
   }, [storeName]);
 
-  const orderList: Order[] = orders;
+  const orderList: OrderField[] = orders;
 
-  const [columns, setColumns] = useState<Column[]>(DEFAULT_FIELDS);
+  const [columns, setColumns] = useState<ColumnFieldOrder[]>(DEFAULT_FIELDS);
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
 
   const fieldCatalogue = useMemo(() => {
@@ -310,7 +314,7 @@ export default function OrderExportTemplate({
 
     setColumns((prev) => {
       const existing = new Set(prev.map((c) => c.path));
-      const next: Column[] = [...prev];
+      const next: ColumnFieldOrder[] = [...prev];
 
       for (const path of selectedPaths) {
         const trimmed = (path ?? "").trim();
@@ -329,6 +333,82 @@ export default function OrderExportTemplate({
 
     clearPicker();
   };
+
+  function SortableFieldRow({
+    column,
+    orders,
+  }: {
+    column: ColumnFieldOrder;
+    orders: OrderField[];
+  }) {
+    const {
+      setNodeRef,
+      attributes,
+      listeners,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: column.id });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+    };
+
+    console.log("orders", orders)
+
+    return (
+      <tr
+        ref={setNodeRef}
+        style={style}
+        className={`sortable-row ${isDragging ? "is-dragging" : ""}`}
+      >
+        <td className="td-field" title={column.label}>
+          <span
+            {...attributes}
+            {...listeners}
+            className="drag-handle"
+            title="Drag field"
+          >
+            ≡
+          </span>
+          {column.label}
+        </td>
+
+        {orders.map((order, i) => {
+          const staticValue = getStaticValue(column.path);
+          const value =
+            staticValue !== undefined
+              ? staticValue
+              : getByPath(
+                  order?.raw as any,
+                  normalizePathForRead(column.path).replace(/^raw\./, ""),
+                );
+
+          return (
+            <td
+              key={i}
+              className="td-value"
+              title={formatCellValue(value)}
+            >
+              {formatCellValue(value)}
+            </td>
+          );
+        })}
+
+        <td className="td-action">
+          <button
+            className="action-btn"
+            onClick={() => console.log("Edit field:", column)}
+            title="Edit field"
+          >
+            ✏️
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
 
   return (
     <div style={{height: '1000px'}}>
@@ -498,99 +578,47 @@ export default function OrderExportTemplate({
                 onDragStart={(e) => setActiveId(e.active.id)}
                 onDragEnd={handleDragEnd}
               >
-                <table
-                  style={{
-                    width: "100%",
-                    borderCollapse: "collapse",
-                    border: "1px solid #e1e3e5",
-                  }}
-                >
-                  <thead>
-                    <tr>
-                      <th
-                        style={{
-                          background: "#f6f6f7",
-                          padding: 8,
-                          borderBottom: "1px solid #e1e3e5",
-                        }}
-                      >
-                        Column name
-                      </th>
+                <div className="order-table-wrapper">
+                  <table className="order-table">
+                    <thead>
+                      <tr>
+                        <th className="th-field">Field</th>
 
-                      <SortableContext
-                        items={columns.map((c) => c.id)}
-                        strategy={horizontalListSortingStrategy}
-                      >
-                        {columns.map((col) => (
-                          <th
-                            key={col.id}
-                            style={{
-                              background: "#f6f6f7",
-                              padding: 8,
-                              borderBottom: "1px solid #e1e3e5",
-                            }}
-                          >
-                            <SortableHeader id={col.id} label={col.label} />
+                        {orderList.map((_, i) => (
+                          <th key={i} className="th-row">
+                            Row {i + 1}
                           </th>
                         ))}
-                      </SortableContext>
-                    </tr>
-                  </thead>
 
-                  <tbody>
-                    {orderList.map((order, i) => (
-                      <tr key={order.id ?? i}>
-                        <td
-                          style={{
-                            padding: 8,
-                            borderBottom: "1px solid #f0f0f0",
-                          }}
-                        >
-                          Row {i + 1}
-                        </td>
-
-                        {columns.map((col) => {
-                          const staticValue = getStaticValue(col.path);
-                          const value =
-                            staticValue !== undefined
-                              ? staticValue
-                              : getByPath(
-                                  order?.raw as any,
-                                  normalizePathForRead(col.path).replace(/^raw\./, ""),
-                                );
-
-                          return (
-                            <td
-                              key={col.id}
-                              style={{
-                                padding: 8,
-                                borderBottom: "1px solid #f0f0f0",
-                              }}
-                            >
-                              {formatCellValue(value)}
-                            </td>
-                          );
-                        })}
+                        <th className="th-action">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+
+                    <tbody>
+                      <SortableContext
+                        items={columns.map((c) => c.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {columns.map((col) => (
+                          <SortableFieldRow
+                            key={col.id}
+                            column={col}
+                            orders={orderList}
+                          />
+                        ))}
+                      </SortableContext>
+                    </tbody>
+                  </table>
+                </div>
 
                 <DragOverlay>
                   {activeColumn ? (
-                    <div
-                      style={{
-                        padding: "8px 12px",
-                        background: "#fff",
-                        boxShadow: "0 8px 24px rgba(0,0,0,.15)",
-                        borderRadius: 6,
-                        opacity: 0.9,
-                      }}
-                    >
+                    <div className="drag-overlay">
                       ≡ {activeColumn.label}
                     </div>
                   ) : null}
                 </DragOverlay>
+
               </DndContext>
             </s-stack>
           </s-section>
