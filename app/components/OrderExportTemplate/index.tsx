@@ -11,7 +11,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import "./order_export_template.css"
+import "./order_export_template.css";
 import { ColumnFieldOrder, OrderField } from "app/config";
 import SortableFieldRow from "./SortableFieldRow";
 import { ModalField } from "./ModalField";
@@ -205,19 +205,19 @@ export default function OrderExportTemplate({
 
 
   const handleSaveFields = () => {
-    setColumns(prev => {
-      const prevMap = new Map(prev.map(c => [c.path, c]));
+    setColumns((prev) => {
+      const prevMap = new Map(prev.map((c) => [c.path, c]));
 
       return draftSelectedPaths
-        .map(path => {
+        .map((path) => {
           const existing = prevMap.get(path);
           if (existing) return existing;
 
-          const field = fieldCatalogue.find(f => f.path === path);
+          const field = fieldCatalogue.find((f) => f.path === path);
           if (!field) return null;
 
           return {
-            id: crypto.randomUUID(),
+            id: `${field.path}`,
             label: field.label,
             path: field.path,
           };
@@ -231,6 +231,61 @@ export default function OrderExportTemplate({
   const handleCancelFields = () => {
     setDraftSelectedPaths(columns.map(c => c.path));
     setQuery("");
+  };
+
+  const csvEscape = (value: unknown) => {
+    if (value == null) return "";
+    const s = String(value);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+
+  const normalizeCellValue = (value: unknown) => {
+    if (value == null) return "";
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return value;
+    }
+    return JSON.stringify(value);
+  };
+
+  const buildCSV = () => {
+    const headers = columns.map((c) => c.label);
+    const rows = orderList.map((order) => {
+      return columns.map((c) => {
+        if (c.path === "__static.exportedTimestamp") return new Date().toISOString();
+        const rawValue = getByPath(order, c.path);
+        return normalizeCellValue(rawValue);
+      });
+    });
+
+    const lines = [
+      headers.map(csvEscape).join(","),
+      ...rows.map((r) => r.map(csvEscape).join(",")),
+    ];
+
+    return lines.join("\r\n");
+  };
+
+  const downloadCSV = () => {
+    if (typeof document === "undefined") return;
+
+    const csv = buildCSV();
+    const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const templateName = (storeName.value || "order-export-template").trim() || "order-export-template";
+    const datePart = new Date().toISOString().slice(0, 10);
+    const filename = `${templateName}-${datePart}.csv`;
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -265,7 +320,7 @@ export default function OrderExportTemplate({
                     Add field
                   </s-button>
 
-                  <s-button variant="primary" onClick={() => console.log("Download success")}>
+                  <s-button variant="primary" onClick={downloadCSV}>
                     Download CSV
                   </s-button>
                 </s-stack>
