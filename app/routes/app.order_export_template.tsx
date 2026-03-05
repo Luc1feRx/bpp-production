@@ -1,4 +1,4 @@
-import OrderExportTemplate from "app/components/OrderExportTemplate";
+import OrderExportTemplateDetail from "app/components/OrderExportTemplate/OrderExportTemplateDetail";
 import prisma from "app/db.server";
 import { authenticate } from "app/shopify.server";
 import type { LoaderFunctionArgs } from "react-router";
@@ -62,13 +62,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return data({ orders: serialized });
 };
 
-export default function OrderExportTemplatePage() {
+const OrderExportTemplatePage = () => {
   // Orders được load từ loader ở trên
   const { orders } = useLoaderData() as { orders: LoaderOrder[] };
 
   return (
     <s-page heading="Order Export Template page">
-      <OrderExportTemplate orders={orders} />
+      <OrderExportTemplateDetail orders={orders} />
     </s-page>
   );
 }
+
+export default OrderExportTemplatePage

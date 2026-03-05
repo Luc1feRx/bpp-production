@@ -1,3 +1,5 @@
+import { ClientOnly } from "app/config/ClientOnly";
+
 type FieldOption = {
   label: string;
   path: string;
@@ -36,7 +38,7 @@ export const ModalField = ({
           }
         />
 
-       <s-choice-list
+      <s-choice-list
         label="Available fields"
         name="fields"
         multiple

@@ -4,7 +4,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { data } from "react-router";
 
 // Helper: chuẩn hoá error để trả về client (tránh lộ stacktrace)
-function serializeThrown(error: unknown) {
+const serializeThrown = (error: unknown) => {
   if (error instanceof Response) {
     return {
       message: `${error.status} ${error.statusText}`.trim(),
